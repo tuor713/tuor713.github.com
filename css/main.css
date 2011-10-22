@@ -1,0 +1,10 @@
+p,li,span,input,dt,dl {
+  font-family: "Lato,Helvetica,Arial";
+  font-size: 14px;
+}
+
+.rich-input {
+  color: #00C;
+  border-bottom: 1px dotted #00C;
+}
+
