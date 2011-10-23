@@ -14,6 +14,17 @@
   <script type="text/javascript">
     goog.require("tools");
   </script>
+  
+  <!-- Apparently using the library required above only works in the next script tag. WFT -->
+  <script>
+    document.addEvent("domready",
+      function() {
+        tools.depends("x_2",["x"], function (xval) { var x=parseInt(xval); return x*x; });
+        tools.depends("x_4",["x_2"], function (xval) { var x=parseInt(xval); return x*x;});
+        
+        tools.depends("is_palin", ["palin"], function (s) { if (tools.palindrome(s)) return ""; else return "not "; });
+      });
+  </script>
 </head>
   
 <body>
@@ -21,7 +32,11 @@
 <h3>Rich editing</h3>
 
 <p>
-Here is a selection of fancy editing primitives. This comes as an experiment on the ideas of <a href="http://worrydream.com/Tangle/">Tangle</a> and <a href="http://worrydream.com/#!/MagicInk">MagicInk</a>.
+Here is a selection of fancy editing primitives. This comes as an experiment on the ideas of <a href="http://worrydream.com/Tangle/">Tangle</a> and <a href="http://worrydream.com/#!/MagicInk">MagicInk</a>. This is technical experimentation rather than an attempt to improve upon Tangle. For the fun of it of course!
+</p> 
+
+<p>
+Click on any dotted element to edit the element or, alternatively, tab through the elements.
   
   <dl>
     <dt>Free text</dt>
@@ -38,9 +53,23 @@ Here is a selection of fancy editing primitives. This comes as an experiment on 
   </dl>
 </p>
 
+<h4>Linked elements</h4>
+
 <p>
-Note that the inputs have automatic tab-generation, so it is possible to navigate the "form" with the keyboard.
+So far so good. But then comparing this to the tangle show case this is distinctly lacking the ability to connect different datasources not all of which may be 
+editable.
 </p>
+
+<p>
+Examples (beware this uses the HTML 5 input event and probably won't work on IE):
+  <ul>
+    <li>The square of x=<span id="x" rich-input="free-text" size="1">1</span> is <span id="x_2">1</span>. And the square of that in turn is <span id="x_4">1</span>.</li>
+    <li>The word <span id="palin" rich-input="free-text" size="5">palindrome</span> is <span id="is_palin">not </span>a palindrome.</li>
+  </ul>
+</p>
+
+
+
 
 <h3>Tidbits</h3>
 
@@ -50,6 +79,7 @@ Things that I have not yet implemented / figured out:
     <li>Numeric elements. Various forms drag, slider.</li>
     <li>How to make the slider work properly with focussing</li>
     <li>Connectors between different elements i.e. on-update propagation</li>
+    <li>Validation rules</li>
     <li>Much more ... ;) </li>
   </ul>
 <p>

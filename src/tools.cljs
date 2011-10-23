@@ -1,10 +1,49 @@
 (ns tools)
 
+(def dependencies (atom {}))
+(def updates (atom {}))
+
+(defn calculate [var]
+  (let [{deps :dependencies fn :function} (@updates var)]
+    (apply fn 
+      (map 
+        #(let [e (js/$ %)] 
+          (or (.get e "value") (.get e "text"))) 
+        deps))))
+
+(defn recalc-all [changed]
+  (loop [todo (get @dependencies changed)]
+    (when-not (empty? todo)
+      (let [updated (doall
+                      (keep identity
+                        (map 
+                          #(do
+                            (let [nval (calculate %)
+                                 e (js/$ %)]
+                              (if (= (.get e "text") nval)
+                                nil
+                                (do
+                                  (.set e "text" nval)
+                                  %))))
+                          todo)))
+            new-todo (reduce into #{} (map @dependencies updated))]
+        (recur new-todo)))))
+
+(defn depends [var deps fn]
+  (swap! dependencies #(merge-with into % (zipmap (seq deps) (repeat #{var}))))
+  (swap! updates assoc var {:dependencies (seq deps) :function fn}))
+
 (defn switch-to-free-text [e]
   (let [ne (js/Element. "input" 
               (.strobj {"value" (.get e "text") 
                         "size" (.getAttribute e "size")
+                        "id" (.getAttribute e "id")
                         "tabindex" (.getAttribute e "tabindex")}))]
+
+    (when-not (= undefined (.getAttribute e "id"))
+      (.addEvent ne "input"
+        #(recalc-all (.getAttribute e "id"))))
+                        
     (.addEvent ne "blur" 
       (fn [_] 
         (.set e "text" (.get ne "value"))
@@ -17,7 +56,7 @@
   (.addEvent e "focus" #(switch-to-free-text e)))
 
 (defn switch-to-select [e choices]
-  (let [ne (js/Element. "select" (.strobj {"tabindex" (.getAttribute e "tabindex")}))]
+  (let [ne (js/Element. "select" (.strobj {"tabindex" (.getAttribute e "tabindex") "id" (.getAttribute e "id")}))]
     (.addEvent ne "blur"
       (fn [_]
         (.set e "text" (.get ne "value"))
@@ -46,6 +85,7 @@
             (.strobj
               {"type" "range" 
                "tabindex" (.getAttribute e "tabindex")
+               "id" (.getAttribute e "id")
                "min" min 
                "max" max 
                "step" step
@@ -72,6 +112,7 @@
             (.strobj
               {"type" "date"
                "tabindex" (.getAttribute e "tabindex")
+               "id" (.getAttribute e "id")
                "value" (.get e "text")}))]
     (.addEvent ne "blur"
       (fn [_]
@@ -101,5 +142,7 @@
           (.addClass e "rich-input")
           ((handlers type) e))))))
 
+(defn palindrome [s]
+  (= (reverse s) (seq s)))
 
 
