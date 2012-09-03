@@ -1,5 +1,7 @@
 goog.provide('tools');
 goog.require('cljs.core');
+goog.require('goog.ui.DatePicker');
+goog.require('goog.date.Date');
 tools.dependencies = cljs.core.atom.call(null,cljs.core.ObjMap.fromObject([],{}));
 tools.updates = cljs.core.atom.call(null,cljs.core.ObjMap.fromObject([],{}));
 tools.calculate = (function calculate(var$){
@@ -154,14 +156,46 @@ return e.addEvent("focus",(function (){
 return tools.switch_to_date.call(null,e);
 }));
 });
-tools.handlers = cljs.core.ObjMap.fromObject(["free-text","select","range","date"],{"free-text":tools.make_free_text,"select":tools.make_select,"range":tools.make_range,"date":tools.make_date});
+tools.switch_to_datepicker = (function switch_to_datepicker(e){
+var ne__2400 = Element.call(null,"div");
+var vec__2399__2401 = cljs.core.map.call(null,(function (p1__2398_SHARP_){
+return parseInt.call(null,p1__2398_SHARP_);
+}),e.get("text").split("-"));
+var year__2402 = cljs.core.nth.call(null,vec__2399__2401,0,null);
+var month__2403 = cljs.core.nth.call(null,vec__2399__2401,1,null);
+var day__2404 = cljs.core.nth.call(null,vec__2399__2401,2,null);
+var picker__2405 = (new goog.ui.DatePicker((new goog.date.Date(year__2402,(month__2403 - 1),day__2404))));
+
+ne__2400.addClass("datepicker-container");
+picker__2405.setShowFixedNumWeeks(false);
+picker__2405.setUseSimpleNavigationMenu(true);
+picker__2405.setAllowNone(false);
+picker__2405.setShowWeekNum(false);
+picker__2405.addEventListener("select",(function (){
+var date__2406 = picker__2405.getDate();
+
+e.set("text",cljs.core.str.call(null,date__2406.getFullYear(),"-",(1 + date__2406.getMonth()),"-",date__2406.getDate()));
+return e.replaces(ne__2400);
+}));
+ne__2400.replaces(e);
+return picker__2405.render(ne__2400);
+});
+tools.make_datepicker = (function make_datepicker(e){
+e.addEvent("click",(function (){
+return tools.switch_to_datepicker.call(null,e);
+}));
+return e.addEvent("focus",(function (){
+return tools.switch_to_datepicker.call(null,e);
+}));
+});
+tools.handlers = cljs.core.ObjMap.fromObject(["free-text","select","range","date","datepicker"],{"free-text":tools.make_free_text,"select":tools.make_select,"range":tools.make_range,"date":tools.make_date,"datepicker":tools.make_datepicker});
 document.addEvent("domready",(function (){
 return $$.call(null,"span[rich-input]").each((function (e,ind){
-var type__2398 = e.getAttribute("rich-input");
+var type__2407 = e.getAttribute("rich-input");
 
 e.setAttribute("tabindex",(ind + 1));
 e.addClass("rich-input");
-return tools.handlers.call(null,type__2398).call(null,e);
+return tools.handlers.call(null,type__2407).call(null,e);
 }));
 }));
 tools.palindrome = (function palindrome(s){

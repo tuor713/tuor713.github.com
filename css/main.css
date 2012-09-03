@@ -8,3 +8,15 @@ p,li,span,input,dt,dl {
   border-bottom: 1px dotted #00C;
 }
 
+body {
+  background-color: #CCC;
+}
+
+.datepicker-container {
+  display: inline;
+}
+
+#content {
+  width: 700px;
+  margin: 0 auto;
+}

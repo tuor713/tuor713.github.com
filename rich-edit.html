@@ -5,6 +5,7 @@
   <title>Experiments</title>
 
   <link rel="stylesheet" type="text/css" href="css/main.css"></link>
+  <link rel="stylesheet" type="text/css" href="css/datepicker.css"></link>
 
   <script type="text/javascript" src="out/goog/base.js"></script>
   <script type="text/javascript" src="out/goog/deps.js"></script>
@@ -20,7 +21,7 @@
     document.addEvent("domready",
       function() {
         tools.depends("x_2",["x"], function (xval) { var x=parseInt(xval); return x*x; });
-        tools.depends("x_4",["x_2"], function (xval) { var x=parseInt(xval); return x*x;});
+        tools.depends("x_4",["x_2"], function (xval) { var x=parseInt(xval); return x*x; });
         
         tools.depends("is_palin", ["palin"], function (s) { if (tools.palindrome(s)) return ""; else return "not "; });
       });
@@ -29,11 +30,14 @@
   
 <body>
 
+<div id="content">
+
 <h3>Rich editing</h3>
 
 <p>
 Here is a selection of fancy editing primitives. This comes as an experiment on the ideas of <a href="http://worrydream.com/Tangle/">Tangle</a> and <a href="http://worrydream.com/#!/MagicInk">MagicInk</a>. This is technical experimentation rather than an attempt to improve upon Tangle. For the fun of it of course!
 </p> 
+
 
 <p>
 Click on any dotted element to edit the element or, alternatively, tab through the elements.
@@ -46,7 +50,7 @@ Click on any dotted element to edit the element or, alternatively, tab through t
     <dd>A selection of <span rich-input="select" choices="words,phrases,terms">words</span>.</dd>
     
     <dt>Date (make this more fancy)</dt>
-    <dd>This was written on: <span rich-input="date">2011-10-22</span></dd>
+    <dd>This was written on: <span rich-input="date">2011-10-22</span>. And a fancy date looks like this: <span rich-input="datepicker">2011-10-22</span></dd>
     
     <dt>Range (this element has problems with focus, only really works with keyboard right now)</dt>
     <dd>An average person has <span rich-input="range" min="0" max="20">4</span> close friends.</dt>
@@ -64,7 +68,7 @@ editable.
 Examples (beware this uses the HTML 5 input event and probably won't work on IE):
   <ul>
     <li>The square of x=<span id="x" rich-input="free-text" size="1">1</span> is <span id="x_2">1</span>. And the square of that in turn is <span id="x_4">1</span>.</li>
-    <li>The word <span id="palin" rich-input="free-text" size="5">palindrome</span> is <span id="is_palin">not </span>a palindrome.</li>
+    <li>The word <span id="palin" rich-input="free-text" size="7">palindrome</span> is <span id="is_palin">not </span>a palindrome.</li>
   </ul>
 </p>
 
@@ -97,6 +101,8 @@ Things that I have not yet implemented / figured out:
   
 </p>
   
+</div>  
+
 </body>
 
 </html>

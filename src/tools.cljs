@@ -1,4 +1,7 @@
-(ns tools)
+(ns tools
+  (:require 
+    [goog.ui.DatePicker :as DatePicker]
+    [goog.date.Date :as Date]))
 
 (def dependencies (atom {}))
 (def updates (atom {}))
@@ -126,11 +129,43 @@
   (.addEvent e "click" #(switch-to-date e))
   (.addEvent e "focus" #(switch-to-date e)))
 
+(defn switch-to-datepicker [e]
+  (let [ne (js/Element "div")
+        [year month day] (map #(js/parseInt %) (.split (.get e "text") "-"))
+        picker (goog.ui.DatePicker. (goog.date.Date. year (- month 1) day))]
+
+    (.addClass ne "datepicker-container")
+
+    (.setShowFixedNumWeeks picker false)
+    (.setUseSimpleNavigationMenu picker true)
+    (.setAllowNone picker false)
+    (.setShowWeekNum picker false)
+    
+    (.addEventListener picker
+      "select" 
+      (fn []
+        (let [date (. picker (getDate))]
+          (.set e "text" 
+            (str (. date (getFullYear))
+                 "-"
+                 (+ 1 (. date (getMonth)))
+                 "-"
+                 (. date (getDate)))))
+        (.replaces e ne)))
+    
+    (.replaces ne e)
+    (.render picker ne)))
+
+(defn make-datepicker [e]
+  (.addEvent e "click" #(switch-to-datepicker e))
+  (.addEvent e "focus" #(switch-to-datepicker e)))
+
 (def handlers
   {"free-text" make-free-text
    "select" make-select
    "range" make-range
-   "date" make-date})
+   "date" make-date
+   "datepicker" make-datepicker})
 
 (.addEvent js/document
   "domready"
