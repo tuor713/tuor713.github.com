@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html> <head>
+<title>Clojure performance investigations</title>
+<link rel="stylesheet" type="text/css" href="css/main.css"></link>
+</head>
+
+<body>
+
+<script type="text/javascript" src="deps/xregexp_1.5.1.js"></script>
+<script type="text/javascript" src="deps/syntaxhighlighter_3.0.83/src/shCore.js"></script>
+<script type="text/javascript" src="deps/sh-clojure-0.9.2/shBrushClojure.js"></script>
+
+<link href="deps/syntaxhighlighter_3.0.83/styles/shCore.css" rel="stylesheet" type="text/css" />
+<link href="deps/syntaxhighlighter_3.0.83/styles/shThemeDefault.css" rel="stylesheet" type="text/css" />
+
+<h2>Clojure performance investigation</h2>
+
+<p>
+A play around with Clojure sequence processing optimizations. All examples are taken from dual core MacBook Pro using the <a href="https://github.com/hugoduncan/criterium">Criterium</a> library.
+</p>
+
+<p>
+As an example I took this very naive CSV parsing code. 
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (let [[header & content] (.split s "\n")
+        keys (map keyword (.split header ","))]
+    (for [line content]
+      (zipmap keys (.split line ",")))))
+</pre>
+
+<p>
+Running this on an example input files of a 1000 lines of three
+integer entries each:
+</p>
+
+<pre>
+Evaluation count : 12360 in 60 samples of 206 calls.
+Execution time mean : 5.082378 ms
+Execution time std-deviation : 169.584800 us
+</pre>
+</p>
+
+<p>
+While that is not utterly attrocious, 5ms is by no means a particularly
+awe-inspiring time for reading and splitting a thousand lines of
+text. Surprisingly, the biggest hit is due simply to Java reflection
+on String#split calls.
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (let [[header & content] (.split ^String s "\n")
+        keys (map keyword (.split ^String header ","))]
+    (for [line content]
+      (zipmap keys (.split ^String line ",")))))
+</pre>
+
+<p>
+Results are much better:
+</p>
+
+<pre>
+Evaluation count : 34920 in 60 samples of 582 calls.
+Execution time mean : 1.702471 ms
+Execution time std-deviation : 16.062975 us
+</pre>
+
+<p>
+However the type hints are quite intrusive and can be more
+idiomatically avoided by using the clojure.string functions. Each of
+these already has the appropriate type hints. Furthermore, the use of
+regular expression literals avoids repeated recompilation of the
+pattern and so slices off another bit of overhead.
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (let [[header & content] (split s #"\n")
+        keys (map keyword (split header #","))]
+    (for [line content]
+      (zipmap keys (split line #",")))))
+</pre>
+
+<pre>
+Evaluation count : 45180 in 60 samples of 753 calls.
+Execution time mean : 1.345969 ms
+Execution time std-deviation : 15.386283 us
+</pre>
+
+<p>
+A further possible optimization is to define a struct up front to
+avoid storage overheads and streamline the common datastructure parts.
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (let [[header & content] (split s #"\n")
+        keys (map keyword (split header #","))
+        s (apply create-struct keys)]
+    (for [line content]
+      (apply struct s (split line #",")))))
+</pre>
+
+<pre>
+Evaluation count : 64260 in 60 samples of 1071 calls.
+Execution time mean : 932.391208 us
+Execution time std-deviation : 11.852525 us
+</pre>
+
+<p>
+On the other hand (at least naive) parallelization has but a
+detrimental effect, undoubtedly due to the unfavorable ration of
+parallezitation overhead versus time taken by the line processing.
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (let [[header & content] (split s #"\n")
+        keys (map keyword (split header #","))
+        s (apply create-struct keys)]
+    (pmap
+      #(apply struct s (split line #","))
+      content)))
+</pre>
+
+<pre>
+Evaluation count : 16560 in 60 samples of 276 calls.
+Execution time mean : 3.677696 ms
+Execution time std-deviation : 136.358896 us
+</pre>
+
+<p>
+On the other hand there seems to be a small gain from using a
+transient structure to collate result rows. Note that with this change
+the operation is no longer lazy, which restricts its use for streaming
+through larger data sets.
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (let [[header & content] (split s #"\n")
+        keys (map keyword (split header #","))
+        s (apply create-struct keys)
+        res (transient [])]
+    (doseq [line content]
+      (conj! res (apply struct s (split line #","))))
+    (persistent! res)))
+</pre>
+
+<pre>
+Evaluation count : 64440 in 60 samples of 1074 calls.
+Execution time mean : 922.896151 us
+Execution time std-deviation : 8.132084 us
+</pre>
+
+<p>
+On the subject of behaviour changing alterations, there is also a
+significant speed up from using seqs (returned from split) over
+hash-maps.
+</p>
+
+<pre class="brush: clj">
+(defn parse-csv [s]
+  (for [line (split s #"\n")]
+    (split line #",")))
+</pre>
+
+<pre>
+Evaluation count : 86700 in 60 samples of 1445 calls.
+Execution time mean : 694.440254 us
+Execution time std-deviation : 3.447771 us
+</pre>
+
+<p>
+As a final comparison running a similar Java program for parsing the
+csv file into a List of arrays, a List of Lists came down as 370 resp. 384
+us (using Pattern#split rather than the less effective
+String#split). So overall Clojure is in the same ballpark. Using
+looping instead of sequence traversal would probably bring timings
+even closer together, at the expense of neatness and readability though.
+</p>
+
+<h2> Conclusions</h2>
+
+<ul>
+  <li>Reflections sucks.</li>
+  <li>Use clojure.string whenever possible</li>
+  <li>Use structs (or records) when performance really matters.</li>
+</ul>
+
+
+<script type="text/javascript">
+     SyntaxHighlighter.all()
+</script>
+
+
+</body>
+</html>
