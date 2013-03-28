@@ -1,0 +1,49 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+
+<head>
+  <title>tuor713's git home</title>
+
+  <link rel="stylesheet" type="text/css" href="../../css/main.css"></link>
+</head>
+
+<body>
+
+<h2>Dependency DSL in Clojure</h2>
+
+<p>28. March 2013</p>
+
+<p>
+An aim to create a dependency DSL similar to something we use in my workplace in Clojure. Below is a bit of sample code. This dependency snippet could be loaded as a separate file or embedded in Clojure source file as a macro.
+</p>
+
+<pre>
+$id <- (:tradeid $input)
+$coupon <- (get-in $input [:payments :coupon])
+$daycount <- (get-in $input [:payments :daycount])
+$product <- (:product $input)
+
+$product-mapping <- {"EXTSWAP" "DefaultableSwapLeg"}
+$xvar-product <- (get $product-mapping $product)
+
+
+$xvar <= {(keyword (str $id)) 
+          {:Id (str $id) 
+           :ProductType $xvar-product
+	   :Security {:Coupon (double $coupon)
+                      :DayCount (str $daycount)}}}
+</pre>
+
+<p>
+Each $-prefixed symbol defines a "variable" i.e. a reference in the global state that can be retrieved and updated. <- and <= operators define dependency rules. While <- create a rule that caches calculated values and prevents recalculation when there are no changes to the input, <= never caches (which can be useful to avoid wasteful storage of intermediate results). 
+</p>
+
+<h4>Implementation</h4>
+
+<p>
+To commit ...
+</p>
+
+</body>
+
+</html>
