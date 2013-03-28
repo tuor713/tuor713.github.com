@@ -41,7 +41,11 @@ Each $-prefixed symbol defines a "variable" i.e. a reference in the global state
 <h4>Implementation</h4>
 
 <p>
-To commit ...
+Two straight forward implementations spring to mind: to use a single ref to hold the state of the whole graph and implement updates and lazy reads as queries against the state that change the value of the ref, alternatively to use a ref for each individual variable and hence create a network of interlinked refs. Initial tests suggest that both implementations have about the same performance for vanilla operations.
+</p>
+
+<p>
+Code to commit ...
 </p>
 
 </body>
