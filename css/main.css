@@ -1,22 +1,27 @@
 p,li,span,input,dt,dl {
-  font-family: "Lato,Helvetica,Arial";
-  font-size: 14px;
+    font-family: "Lato,Helvetica,Arial";
+    font-size: 14px;
 }
 
 .rich-input {
-  color: #00C;
-  border-bottom: 1px dotted #00C;
+    color: #00C;
+    border-bottom: 1px dotted #00C;
 }
 
 body {
-  background-color: #CCC;
+    background-color: #CCC;
 }
 
 .datepicker-container {
-  display: inline;
+    display: inline;
 }
 
 #content {
-  width: 700px;
-  margin: 0 auto;
+    width: 700px;
+    margin: 0 auto;
 }
+
+.datetag {
+    font-style: italic;
+}
+

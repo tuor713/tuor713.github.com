@@ -1,0 +1,26 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+
+<head>
+  <title>OS X fullscreen emacs</title>
+
+  <link rel="stylesheet" type="text/css" href="../../css/main.css"></link>
+</head>
+
+<body>
+
+<h2>Simple fullscreen Emacs on OS X</h2>
+
+<p class="datetag">30 March 2013</p>
+
+<p>
+For a while I have lamented there was no obvious simple way included in the standard Emacs 24 package to go fullscreen. There seemed to be some solutions around, which rely on patching the build or running unofficial branches, not quite for me so far. Playing around with the command-line options I have stumbled across an acceptable simple solution. The recipe is very simple: use -nw option paired with Terminal's built-in ability to go fullscreen .. and hey presto a functional, minimalist (as we like it) Emacs running fullscreen.
+</p>
+
+<p>
+To make things a little easier and avoid the OS X built-in version 22 emacs, I also added alias emacs="/Applications/Emacs.app/Contents/MacOS/Emacs -nw" to bash profile. Finally, there is a Terminal setting to treat Option key as meta character, which is needed to make this whole mix usable.
+</p>
+
+</body>
+
+</html>

@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>Dependency DSL in Clojure</title>
+  <title>tuor713's git home</title>
 
   <link rel="stylesheet" type="text/css" href="../../css/main.css"></link>
 </head>
@@ -11,7 +11,7 @@
 
 <h2>Dependency DSL in Clojure</h2>
 
-<p class="datetag">28. March 2013</p>
+<p>28. March 2013</p>
 
 <p>
 An aim to create a dependency DSL similar to something we use in my workplace in Clojure. Below is a bit of sample code. This dependency snippet could be loaded as a separate file or embedded in Clojure source file as a macro.

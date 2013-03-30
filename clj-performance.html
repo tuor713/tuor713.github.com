@@ -183,14 +183,13 @@ looping instead of sequence traversal would probably bring timings
 even closer together, at the expense of neatness and readability though.
 </p>
 
-<h2> Conclusions</h2>
+<h5> Conclusions</h5>
 
 <ul>
   <li>Reflections sucks.</li>
-  <li>Use clojure.string whenever possible</li>
+  <li>Use clojure.string whenever possible because it has the necessary type annotations for compiler optimization</li>
   <li>Use structs (or records) when performance really matters.</li>
 </ul>
-
 
 <script type="text/javascript">
      SyntaxHighlighter.all()
