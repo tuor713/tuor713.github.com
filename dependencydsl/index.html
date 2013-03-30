@@ -1,17 +1,20 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html>
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - Dependency DSL in Clojure</title>
+    <link rel="stylesheet" href="/style.css">
+    
+    
 
-<head>
-  <title>Dependency DSL in Clojure</title>
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>Dependency DSL in Clojure</h1>
 
-  <link rel="stylesheet" type="text/css" href="../../css/main.css"></link>
-</head>
-
-<body>
-
-<h2>Dependency DSL in Clojure</h2>
-
-<p class="datetag">28. March 2013</p>
+<p class="datetag">28 March 2013</p>
 
 <p>
 An aim to create a dependency DSL similar to something we use in my workplace in Clojure. Below is a bit of sample code. This dependency snippet could be loaded as a separate file or embedded in Clojure source file as a macro.
@@ -30,7 +33,7 @@ $xvar-product <- (get $product-mapping $product)
 $xvar <= {(keyword (str $id)) 
           {:Id (str $id) 
            :ProductType $xvar-product
-	   :Security {:Coupon (double $coupon)
+	    :Security {:Coupon (double $coupon)
                       :DayCount (str $daycount)}}}
 </pre>
 
@@ -47,7 +50,28 @@ Two straight forward implementations spring to mind: to use a single ref to hold
 <p>
 Code to commit ...
 </p>
-
-</body>
-
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
 </html>

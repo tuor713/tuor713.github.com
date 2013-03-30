@@ -1,19 +1,15 @@
-<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
-<html> <head>
-<title>Clojure performance investigations</title>
-<link rel="stylesheet" type="text/css" href="css/main.css"></link>
-</head>
+--- 
+title: Clojure performance investigations
+---
 
-<body>
+<script type="text/javascript" src="/deps/xregexp_1.5.1.js"></script>
+<script type="text/javascript" src="/deps/syntaxhighlighter_3.0.83/src/shCore.js"></script>
+<script type="text/javascript" src="/deps/sh-clojure-0.9.2/shBrushClojure.js"></script>
 
-<script type="text/javascript" src="deps/xregexp_1.5.1.js"></script>
-<script type="text/javascript" src="deps/syntaxhighlighter_3.0.83/src/shCore.js"></script>
-<script type="text/javascript" src="deps/sh-clojure-0.9.2/shBrushClojure.js"></script>
+<link href="/deps/syntaxhighlighter_3.0.83/styles/shCore.css" rel="stylesheet" type="text/css" />
+<link href="/deps/syntaxhighlighter_3.0.83/styles/shThemeDefault.css" rel="stylesheet" type="text/css" />
 
-<link href="deps/syntaxhighlighter_3.0.83/styles/shCore.css" rel="stylesheet" type="text/css" />
-<link href="deps/syntaxhighlighter_3.0.83/styles/shThemeDefault.css" rel="stylesheet" type="text/css" />
-
-<h2>Clojure performance investigation</h2>
+<h1>Clojure performance investigation</h2>
 
 <p>
 A play around with Clojure sequence processing optimizations. All examples are taken from dual core MacBook Pro using the <a href="https://github.com/hugoduncan/criterium">Criterium</a> library.
@@ -183,18 +179,16 @@ looping instead of sequence traversal would probably bring timings
 even closer together, at the expense of neatness and readability though.
 </p>
 
-<h5> Conclusions</h5>
+<h2> Conclusions</h2>
 
 <ul>
   <li>Reflections sucks.</li>
-  <li>Use clojure.string whenever possible because it has the necessary type annotations for compiler optimization</li>
+  <li>Use clojure.string whenever possible</li>
   <li>Use structs (or records) when performance really matters.</li>
 </ul>
+
 
 <script type="text/javascript">
      SyntaxHighlighter.all()
 </script>
 
-
-</body>
-</html>

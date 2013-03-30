@@ -1,17 +1,11 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html>
+--- 
+title: Dependency DSL in Clojure
+---
 
-<head>
-  <title>tuor713's git home</title>
 
-  <link rel="stylesheet" type="text/css" href="../../css/main.css"></link>
-</head>
+<h1>Dependency DSL in Clojure</h1>
 
-<body>
-
-<h2>Dependency DSL in Clojure</h2>
-
-<p>28. March 2013</p>
+<p class="datetag">28 March 2013</p>
 
 <p>
 An aim to create a dependency DSL similar to something we use in my workplace in Clojure. Below is a bit of sample code. This dependency snippet could be loaded as a separate file or embedded in Clojure source file as a macro.
@@ -30,7 +24,7 @@ $xvar-product <- (get $product-mapping $product)
 $xvar <= {(keyword (str $id)) 
           {:Id (str $id) 
            :ProductType $xvar-product
-	   :Security {:Coupon (double $coupon)
+	    :Security {:Coupon (double $coupon)
                       :DayCount (str $daycount)}}}
 </pre>
 
@@ -47,7 +41,3 @@ Two straight forward implementations spring to mind: to use a single ref to hold
 <p>
 Code to commit ...
 </p>
-
-</body>
-
-</html>

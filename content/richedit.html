@@ -1,16 +1,11 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html>
+--- 
+title: Rich-edit JS controls
+header:   <link rel="stylesheet" type="text/css" href="/css/datepicker.css"></link>
 
-<head>
-  <title>Experiments</title>
-
-  <link rel="stylesheet" type="text/css" href="css/main.css"></link>
-  <link rel="stylesheet" type="text/css" href="css/datepicker.css"></link>
-
-  <script type="text/javascript" src="out/goog/base.js"></script>
-  <script type="text/javascript" src="out/goog/deps.js"></script>
-  <script type="text/javascript" src="home.js"></script>
-  <script type="text/javascript" src="js/mootools-core.js"></script>
+  <script type="text/javascript" src="/out/goog/base.js"></script>
+  <script type="text/javascript" src="/out/goog/deps.js"></script>
+  <script type="text/javascript" src="/home.js"></script>
+  <script type="text/javascript" src="/js/mootools-core.js"></script>
 
   <script type="text/javascript">
     goog.require("tools");
@@ -26,9 +21,7 @@
         tools.depends("is_palin", ["palin"], function (s) { if (tools.palindrome(s)) return ""; else return "not "; });
       });
   </script>
-</head>
-  
-<body>
+---
 
 <div id="content">
 
@@ -101,8 +94,4 @@ Things that I have not yet implemented / figured out:
   
 </p>
   
-</div>  
-
-</body>
-
-</html>
+</div>

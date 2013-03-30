@@ -1,0 +1,52 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - OS X fullscreen emacs</title>
+    <link rel="stylesheet" href="/style.css">
+    
+    
+
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>Simple fullscreen Emacs on OS X</h1>
+
+<p class="datetag">30 March 2013</p>
+
+<p>
+For a while I have lamented there was no obvious simple way included in the standard Emacs 24 package to go fullscreen. There seemed to be some solutions around, which rely on patching the build or running unofficial branches, not quite for me so far. Playing around with the command-line options I have stumbled across an acceptable simple solution. The recipe is very simple: use -nw option paired with Terminal's built-in ability to go fullscreen .. and hey presto a functional, minimalist (as we like it) Emacs running fullscreen.
+</p>
+
+<p>
+To make things a little easier and avoid the OS X built-in version 22 emacs, I also added alias </p>
+<pre>emacs="/Applications/Emacs.app/Contents/MacOS/Emacs -nw"</pre> 
+<p>to bash profile. Finally, there is a Terminal setting to treat Option key as meta character, which is needed to make this whole mix usable.
+</p>
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
+</html>
