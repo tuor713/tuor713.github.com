@@ -44,7 +44,6 @@ $product <- (:product $input)
 $product-mapping <- {"EXTSWAP" "DefaultableSwapLeg"}
 $xvar-product <- (get $product-mapping $product)
 
-
 $xvar <= {(keyword (str $id)) 
           {:Id (str $id) 
            :ProductType $xvar-product
@@ -63,7 +62,7 @@ Two straight forward implementations spring to mind: to use a single ref to hold
 </p>
 
 <p>
-Code to commit ...
+See github <a href="https://github.com/tuor713/clojure-dl">here</a>.
 </p>
     </div>
     <div id="sidebar">
