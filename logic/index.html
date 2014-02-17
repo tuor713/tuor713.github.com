@@ -1,0 +1,121 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - Forays into clojure.core.logic</title>
+    <link rel="stylesheet" href="/style.css">
+
+    <!-- Google analytics: tuor713 -->
+    <script type="text/javascript">
+      
+      var _gaq = _gaq || [];
+      _gaq.push(['_setAccount', 'UA-39742460-1']);
+      _gaq.push(['_trackPageview']);
+
+      (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+      })();
+
+    </script>
+    
+    
+
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>Forays into clojure.core.logic</h1>
+
+<p class="datetag">9 February 2014 - status: draft</p>
+
+<p>
+This section contains explorative usages of clojure.core.logic. Nothing described herein should be taken as fait accompli but rather as ongoing search for the right place of clojure.core.logic in the toolset.
+</p>
+
+<h2>The problem</h2>
+
+<p>
+This article is based on my efforts to transcribe the rules of the <a href="http://boardgamegeek.com/boardgame/68448/7-wonders">7 Wonders board game</a> into Clojure. 7 Wonders is overall a relatively straight forward game, complexity lies mainly in individual card rules, especially on the wonder boards, that create one-off logic relationships.
+</p>
+
+<h3>Why clojure.core.logic?</h3>
+
+<p>
+Initial attempts to write a game engine highlighted the complexity of choosing an appropriate Clojure data model for the various pieces (wonder, boards, cards, resources, players). Undoubtedly, these can be solved by careful object-oriented modelling. After all all the main concepts are concrete game items linked by logical relations. However, this approach seemed unsatisfactory in at least one aspect: data representation and data access paterns through Clojure data navigation were linked at the hip.
+</p>
+
+<p>
+For example, representing players we want to be able to identify the wonders board held by a player and also the current set of built structures as well as cards in hand. Players themselves need to be linked via their seating order. As a functional language all these structures are immutable. The simplest representation would be treat them all as nested structures, i.e. the game is made up of, amongst others, a list of players in seating order, each player map contains a slot for the board and also a list of buildings etc. This works well enough for a while but eventually a lot of code is spent traversing hierarchies, to find the science buildings of a neighbour one needs to have the neighbours (from the game map) and then traverse through their building lists. Worse to find the tradeable resources of neighbours one needs to look not just at the structures built but also at the wonders board. The navigational aspects of how to access this data clouds over the logical relations of neighbour seating and possession, which are the underlying game aspects to be expressed.
+</p>
+
+<p>
+Enter clojure.core.logic: the promise, other than the general promise of logic programming to be able to run program forwards and backwards, it brings database relational model to in memory data representation, without the need of an actual database. The relational model and relation access are immensely powerful tools eliminating most of the complexities around navigation of data (wtih some efficiency trade-offs). However, rather than being constrained by a straight-jacked SQL interface an in-program relation representation allows free interleaving of relational logic and Clojure primitive functions where necessary.  
+</p>
+
+<h2>Relational versus hierarchical data</h2>
+
+<p>
+
+<ul>
+  <li>Hierarchical data complects data with navigation
+    <ul>
+      <li>Data structures are linked by access considerations</li>
+      <li>Logical data are grouped differently (although potentially linked by common interfaces, is-a relations) into objects for navigation</li>
+    </ul>
+  </li>
+  <li>Relational data thrives on normalization, i.e. clean separation of underlying atomic concepts
+    <ul>
+      <li>Data navigation is abstracted in the relational engine (database or core.logic relational engine)</li>
+      <li>Normalization allows representation of common features in the same table, for example point bearing structures are in one relation, cost-bearing structures in another etc. Collection of items sharing one relation can be accessed as one.</li>
+    </ul>
+  </li>
+</ul>
+
+</p>
+
+      <div id="disqus_thread"></div>
+      <script type="text/javascript">
+        /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+        var disqus_shortname = 'tuor713githubio'; // required: replace example with your forum shortname
+
+        /* * * DON'T EDIT BELOW THIS LINE * * */
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+    <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+    
+
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
+</html>
+
+
