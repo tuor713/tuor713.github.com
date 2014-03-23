@@ -1,4 +1,5 @@
-* {
+/* Do not include span because that interacts with syntax highlighting. There ought to be a better solution. */
+div,a,head,body,p,li,ul,ol {
   margin: 0;
   padding: 0;
 
