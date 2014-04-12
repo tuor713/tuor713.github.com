@@ -1,0 +1,230 @@
+--- 
+title: Hot deployment in Clojure
+---
+
+<h1>Hot deployment in Clojure</h1>
+
+<p class="datetag">12 April 2014</p>
+
+<p>
+  <i>
+    Note that a few points below are based on experiences in Clojure
+    1.2.1. While that version is considerably dated, due to
+    incompatible change barrier of version 1.3.0 early production
+    adapters are sometimes still stuck on 1.2.1. Hence support for version
+    1.2.1 remains a vital consideration imho.
+  </i>
+</p>
+
+<h2>The grail of on-the-fly deployment</h2>
+
+<p>
+  Given increasingly always on deployment requirements of modern
+  applications as well as the expectation of live, REPL-based
+  development modern language have increasingly embedded reloading &
+  redeployment concepts in the core of the language.  To see the
+  progress just contrast the ceremony of pure Java class reloading in
+  development via elaborate add on tools like JRebel to the simplicity
+  of a REPL such as in Clojure.
+</p>
+
+<p>
+  However, speed of feedback during development is only one area
+  unlocked by modern languages. Live redeployment of code in production
+  where leveraging dynamic by nature languages can greatly help achieve
+  agility and delivery. 
+</p>
+
+<p>
+  In the Java world redeployment can be achieved live via carefully
+  engineered classloader based mechanism (either written from scratch or
+  employing the likes of OSGi bundle reload using probably the service
+  registry to swap out the components). In Clojure simpler models are
+  available via REPL like code replacement. Below I list some
+  experiences of working on a dynamic deployment system in Clojure.
+</p>
+
+
+<h2>A. Reloading namespaces</h2>
+
+<p>
+  The simplest way to achieve code reload is simply to load the new
+  code via any of the clojure.core load functions (load-reader,
+  load-file). This will redefine definitions of the re-loaded
+  namespace. Additionally if files are updated on the local file
+  system require with :reload-all would also serve, with the added
+  benefits of automatically handling full dependency refresh. 
+</p>
+
+<p>
+  In the following sections we will assume stateless code (for which
+  Clojure's functional paradigm is ideally suited anyway).  Reloading
+  with the added complexity of maintaining in-memory state is best
+  left aside to externalized caches.
+</p>
+
+<h3>To remove or not to remove</h3>
+
+<p>
+  Both of the options above will not remove a namespace before loading
+  new definitions. This usually works quite well for small incremental
+  code changes, during the duration of the reload symbols are either
+  from the old namespace or redefined from the new namespace but
+  functions can generally be used without interruption of
+  service. However, this is not guaranteed and certain code changes
+  will certainly mean execution of code and reloading cannot be
+  interleaved safely. 
+</p>
+
+<p>
+  Moreover, simply reloading over the top of an existing namespace
+  without explicit calls to remove-ns will mean variables will not
+  actually be removed, so functions that depend on removed
+  functionality may appear to still work even though the functionality
+  is actually broken. Furthermore, memory will not be reclaimed for
+  big variables until an actual JVM restart.
+</p>
+
+<p>
+  On the flip side a call to remove-ns followed by loading the new
+  code will constitute a small duration of service disruption of
+  external calls or internal code relying on the namespace.
+</p>
+
+<h3>Caveat: Memory leaks</h3>
+
+<p>
+  Although generally reloading namespaces should not create leakages
+  as old bindings are replaced by new bindings, freeing the old data
+  and code to be garbage collected, there are some scenarios that do
+  create leaks.  One example (in Clojure 1.2.1 fixed in later versions)
+  are defrecords. 
+</p>
+
+<p>
+  As part of the definition of the record, Clojure 1.2.1 registers a
+  multimethod for print-method against the record class.  Even after
+  the namespace has been reloaded and the old class reference
+  discarded this method definition will be kept by the Multimethod
+  dispatch table and hence the record class and its classloader will
+  be retained.
+</p>
+
+<h3>Caveat: defmacro race condition</h3>
+
+<p>
+  As hinted above reloading code concurrent to normal operations of
+  the system can lead to race conditions, even in a generally
+  concurrency-aware language such as Clojure. One particular example
+  are macros (as created by defmacro). The definition of a macro is
+  split into two parts (not combined as a single, atomic update at the
+  time of this writing): the definition of function and binding to the
+  appropriat Var, the setting of the macro meta flag.
+</p>
+
+<p>
+  Because the two operations are performed non-atomically,
+  concurrently compiling code can in rare cases see a version of the
+  macro not marked as a macro and hence try to call the macro as a
+  function.  Given the hidden additional env parameters passed to
+  macros, this will inevitably lead to a rather weird compilation or
+  execution failure. Even worse, with omission of an appropriate
+  :refer-clojure clause it is even possible inadvertently to affect
+  the macro status of core functions (a concurrent of a namespace without
+  refer-clojure clause will rebind all Var to the clojure.core
+  versions, so the call to set the macro flag may act on the
+  clojure.core version if reload happens between the two definition steps).
+</p>
+
+
+<h2>B. Classloader reloading</h2>
+
+<p>
+  Sometimes reloading individual just is not enough. For example,
+  completely refreshing a set of libraries while clearing out all
+  previous Vars may be best achieved by dumping the whole Clojure
+  installation.  For this task as well as the related concern of
+  supporting different versions of the Clojure runtime itself, be it
+  sequentially or concurrently, a Classloader based model - back to
+  the Java roots so to say - seems unavoidable.  Unfortunately,
+  Clojure in its current form offers a number of challenges.  See for
+  example Immutant's article on runtime isolation <a href="http://immutant.org/news/2012/05/18/runtime-isolation/">here</a>.
+</p>
+
+<p>
+  A rough draft of how this could work, for the example of invoking a
+  function with a set of arguments against a classloader (containing a
+  Clojure runtime with any desired user libraries) is shown
+  below. The reflection can be eliminated by using a tool like
+  Shimdandy <a href="https://github.com/projectodd/shimdandy">Shimdandy</a></li>.
+</p>
+
+<pre>
+<code>(defmacro with-thread-context-classloader [classloader & code]
+  `(let [t# (Thread/currentThread)
+         old-tcc# (.getContextClassLoader t#)]
+     (try 
+       (.setContextClassLoader t# ~classloader)
+       ~@code
+       (finally
+         (.setContextClassLoader t# old-tcc#)))))
+
+(defn- invoke-method [^Method m obj & args]
+  (.invoke m obj (into-array Object args)))
+
+(defn- cleanout-threadlocal [class-loader class field]
+  (let [c (.loadClass class-loader class)
+        f (.getDeclaredField c field)
+        _ (.setAccessible f true)]
+    (.remove (.get f nil))))
+
+(defn- run [^ClassLoader class-loader namespace function arguments]
+  (with-thread-context-classloader
+    class-loader
+    (let [rt (.loadClass class-loader "clojure.lang.RT")
+          m (.getMethod rt "var" (into-array Class [String String]))
+          
+          f (invoke-method m nil namespace function)
+          deser (invoke-method m nil "clojure.core" "read-string")
+          seqer (invoke-method m nil "clojure.core" "seq")
+
+          nssym (.invoke (invoke-method m nil "clojure.core" "symbol") namespace)]
+      (.invoke (invoke-method m nil "clojure.core" "require") nssym)
+      (let [res (->> arguments
+                     (.invoke deser)
+                     (.invoke seqer)
+                     (.applyTo f))]
+
+        ;; clean up 
+        ;; shutdown agents, in case we created threads, makes the classloader onetime only
+        (.invoke (invoke-method m nil "clojure.core" "shutdown-agents"))
+        
+        (cleanout-threadlocal class-loader "clojure.lang.Var" "dvals")
+        (cleanout-threadlocal class-loader "clojure.lang.LockingTransaction" "transaction")
+        (cleanout-threadlocal class-loader "clojure.lang.Agent" "nested")
+
+        res))))
+</code>
+</pre>
+
+<p>
+  As noted in the Immutant article's comments even clearing out the
+  threadlocals (on the invoking thread) and shuting down agents
+  (making the classloader quite one time) is not necessarily enough to
+  prevent leakage under the presence of any kind of binding on
+  additionally created threads (or Clojure managed threads). Also,
+  note that the return values should be converted to Java primitives
+  to avoid classes spilling out (and being hung onto like it appears
+  to be the case for nrepl). 
+</p>
+
+
+
+<h2>References</h2>
+
+<p>
+<ul>
+  <li><a href="https://github.com/projectodd/shimdandy">Shimdandy</a></li>
+  <li><a href="http://immutant.org/news/2012/05/18/runtime-isolation/">Immutant runtime isolation</a></li>
+</ul>
+</p>
