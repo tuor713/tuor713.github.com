@@ -1,0 +1,223 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - Clojure LINQ data sets (reloaded)</title>
+
+    <link href="/deps/highlight.js/styles/tomorrow.css" rel="stylesheet" type="text/css" />
+    <script src="/deps/highlight.js/highlight.pack.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <link rel="stylesheet" href="/style.css">
+
+    <!-- Google analytics: tuor713 -->
+    <script type="text/javascript">
+      
+      var _gaq = _gaq || [];
+      _gaq.push(['_setAccount', 'UA-39742460-1']);
+      _gaq.push(['_trackPageview']);
+
+      (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+      })();
+
+    </script>
+    
+    
+
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>Polyglot data sets in Clojure - Reloaded</h1>
+
+<p class="datetag">18 May 2014</p>
+
+<p>
+  Since the <a href="/dataset/index.html">original installment</a> of the datasets library, a couple of the original design decisions
+  had to be revisited.  This post will delve into a couple of interesting bits of the evolving design.
+</p>
+
+<h2>Query reordering</h2>
+
+<p>
+  A key requirement of the dataset wrapper API is to support delegate to native implementations wherever possible, be that running filter logic
+  on the original source (to limit network transfers) or supporting data source internal joins. At the same time operations not supported by the 
+  original source are supported in a Clojure wrapping layer. One case not supported in the original design is a sequence of operations as below:
+</p>
+
+<pre>
+<code>(-> (sql-table->dataset h2-spec "accounts")
+    (select [(subs :$mnemonic 3) :as :mnem] :$strategy)
+    (where (= :$strategy "001")))</code>
+</pre>
+
+<p>
+  The challenge here is that the native SQL data source is wrapped by a select that uses Clojure functions, and will hence force evaluation in the
+  Clojure wrapper.  The ensuing where clause on the other hand is not dependent on the select statement (as strategy is passed through unchanged) and 
+  could/should be executed natively.  One may argue that in this example the code author could simply reorder the statements.  However, if the where
+  clause is introduced for example as part of a directed join, or if the dataset and the select are provided as a utility data source this may not
+  be possible. What is needed hence is support for query reordering.
+</p>
+
+<h3>To query plan or not to query plan</h3>
+
+<p>
+  At this stage one possibility is to abandon the original design of smart datasources entirely and move to dumb datasource objects backed by an external
+  query planner algorithm.  However, part of the appeal of the original design is that datasources are easy to add and, following a couple of common
+  behaviour rules, contain all the logic needed to integrate into the larger fabric.  So for now let's implement where/select query reordering in the
+  localized datasources.
+</p>
+
+<p>
+  First let's revisit the current distribution of responsibilities for select/where statements.
+  <ol>
+    <li>The macro layer parses code arguments and turns them into quoted forms.</li>
+    <li>The functional layer handles cross-cutting concerns of parsing arguments and splitting into supported and unsupported ones.</li>
+    <li>The protocol implementations handle the datasource specific access and argument handling.</li>
+  </ol>  
+
+  The natural place to handle query reordering would seem to be the functional layer, which already handles join flows.  However, the layer
+  has both too little information and tries to do too much.  For example, it is not clear whether we want to reorder select and where clauses
+  in general or just in cases where a Clojure wrapper was generated and prevents native selects.  Secondly, given that arguments are parsed in the 
+  functional layer for pushing where clauses we would need to retrieve the nested source and try to parse that one.  Note that query reordering 
+  for the described scenario is only really needed for Clojure wrapper datasets as opposed to everything else.  So we can put the logic there.
+</p>
+
+<p>
+  Another challenge after this decision is that the query arguments are parsed in the functional layer so that the wrapper datasource does not 
+  get the raw arguments the wrapped datasource would need.  Moreover, to safely push a where clause the intervening select must not modify
+  the fields used in the where clause, which presupposes introspection into the where clause itself.  
+  Finally, given that the functional layer handles argument seggregation that logic would 
+  also now have to replicated in the wrapper to only pass those arguments to the wrapped datasource that it can handle.  At this point it should be 
+  apparent that the division of responsibilities into a functional layer and protocol implementations has become untenable.  So the first change 
+  is to push all logic into the protocols.  The functional layer now only remains to delegate to wrapper datasources for operation not implemented
+  by a given datasource. Also note, that pushing the logic into individual datasources means that some recurring concerns such as argument
+  segregation now has to be handled by each datasource individually.  However, we can still provide utilities that can be used to remove code duplication.
+</p>
+
+<p> 
+  The new functional layer for select and where are shown below.
+</p>
+
+<pre><code>(defn select* [source fields]
+  (if (satisfies? Selectable source)
+    (-select source fields)
+    (select-wrapper source fields)))
+
+(defn where* [source conditions]
+  (if (satisfies? Filterable source)
+    (-where source conditions)
+    (where-wrapper source conditions)))</code>
+</pre>
+
+<h3>Wrapper datasets</h3>
+
+<p>
+  The most important utility is the concept of a default implementation of all methods that is available to other datasources for operations 
+  they don't wish to handle.  Instead of a single ClojureDatasource class though each wrapper has seperate behaviour.  For example the select
+  wrapper below has logic for the query reordering we wish to accomplish:
+</p>
+
+<pre>
+<code>(defn select-wrapper [source fields]
+  (let [;; to allow some push behaviour we want to exclude one-to-one mappings
+        output-fields (set (keep (fn [[k exp]] (when-not (= k exp) k)) fields))
+        parsed-fields (map (fn [[k sexp]] [(field->keyword k) (sexp->fn sexp)]) fields)
+        mapped-source
+        (r/map
+          (fn [rec]
+            (persistent!
+              (reduce
+                (fn [res [key f]] (assoc! res key (f rec)))
+                (transient {})
+                parsed-fields)))
+          source)]
+    (reify
+      Filterable
+      (-where [self conditions]
+        (let [{pushable true unpushable false}
+              (group-by #(empty? (set/intersection (set (field-refs %)) output-fields)) conditions)
+              inner (if (seq pushable) (where* source pushable) source)]
+          (where-wrapper
+            (select-wrapper inner fields)
+            unpushable)))
+
+      p/CollReduce
+      (coll-reduce [_ f]
+        (p/coll-reduce mapped-source f))
+      (coll-reduce [_ f val]
+        (p/coll-reduce mapped-source f val)))))</code>
+</pre>
+
+<p>
+  On the other hand the where wrapper is quite a bit more simple.  Note that there may also be a case of reordering where clauses
+  to push native predicates inside.  For the moment we have kicked the requirement down the line, given that the implementation
+  is a bit more complex than select to prevent spurious flip-flopping of where clauses.
+</p>
+
+<pre>
+<code>(defn where-wrapper
+  "Default implementation of Filterable protocol handled in Clojure.
+  Delegate to this function for where clauses not natively handled."
+  [source conditions]
+  (let [parsed-conditions (map sexp->fn conditions)]
+    (r/filter
+      (fn [rec] (every? #(% rec) parsed-conditions))
+      source)))</code>
+</pre>
+
+<h2>Next up .. pattern datasets</h2>
+
+<p>
+  With the SQL layer in a reasonable shape the nxet step is to support datasources with more rigid access.  Such as for example
+  caches with linearized access keys or individual field indices.  These will require a different approach to parsing where clauses
+  to extract the field level settings and transform them to the non-SQL query DSL of the individual datasource.
+</p>
+
+      <div id="disqus_thread"></div>
+      <script type="text/javascript">
+        /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+        var disqus_shortname = 'tuor713githubio'; // required: replace example with your forum shortname
+
+        /* * * DON'T EDIT BELOW THIS LINE * * */
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+    <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+    
+
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
+</html>
+
+
