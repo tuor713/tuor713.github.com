@@ -1,0 +1,387 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - Compression algorithms in Clojure</title>
+
+    <link href="/deps/highlight.js/styles/tomorrow.css" rel="stylesheet" type="text/css" />
+    <script src="/deps/highlight.js/highlight.pack.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <link rel="stylesheet" href="/style.css">
+
+    <!-- Google analytics: tuor713 -->
+    <script type="text/javascript">
+      
+      var _gaq = _gaq || [];
+      _gaq.push(['_setAccount', 'UA-39742460-1']);
+      _gaq.push(['_trackPageview']);
+
+      (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+      })();
+
+    </script>
+    
+    
+
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>Compression algorithms in Clojure</h1>
+
+<p class="datetag">21 April 2014</p>
+
+<p>
+  A small collection of essays in implementing compression functions
+  in Clojure, inspired by reading about the <a href="http://www.hutter1.net/prize/">Hutter prize</a>.
+</p>
+
+<h2>Definitions and utilities</h2>
+
+<p>
+  To start with, let us define the basic interface for all encoding
+  methods.  An alternative to the definition below might be to define a
+  protocol <code>Invertible</code> that can be mixed in for functions to
+  define bijections. 
+</p>
+
+<pre><code>(defprotocol Coder
+  (encode [_ data] "Takes a lazy sequence of bytes and returns a lazy sequence of bytes")
+  (decode [_ data] "Inverse of encode. Takes a lazy sequence of bytes and returns a lazy sequence of bytes"))
+</code></pre>
+
+<p>
+  The interface without type annotations does not enforce the usage of
+  byte streams as the common theme.  However, given that often
+  different encoding methods would be chained such as a Lempel-Ziv
+  style sliding window compression together with an entropy encoding
+  (for example Huffman coding below), it seems reasonable to work of a
+  common stream assumption.  Rather than using java.io Streams though
+  Clojure lazy sequences are the more idiomatic choice. 
+</p>
+
+<h3>Bit manipulation utilities</h3>
+
+<p>
+  Given the byte stream representation above, some utilities are in
+  order to convert from bit streams (as produced by some algorithms)
+  to byte streams and back.  The definitions below represent (quite
+  inefficiently) a bit stream as a lazy sequence of 0s and 1s and
+  provide methods to convert back and forth both from single numbers
+  and streams of bytes.  For the sake of efficiency (premature
+  optimisation warning!) they use loops instead of higher-order functions.
+</p>
+
+<pre><code>(defn num->bits [digits num]
+  (loop [res [] n num cnt digits]
+    (if (= cnt 0)
+      (reverse res)
+      (recur (conj res (bit-and n 1))
+             (bit-shift-right n 1)
+             (dec cnt)))))
+
+(defn bits->num [bits]
+  (loop [res 0 bs bits]
+    (if (seq bs)
+      (recur (bit-or (bit-shift-left res 1) (first bs)) (rest bs))
+      res)))
+
+(def byte->bits (partial num->bits 8))
+
+(defn bits->byte [[a b c d e f g h]]
+  (+ (bit-shift-left a 7)
+     (bit-shift-left b 6)
+     (bit-shift-left c 5)
+     (bit-shift-left d 4)
+     (bit-shift-left e 3)
+     (bit-shift-left f 2)
+     (bit-shift-left g 1)
+     h))
+
+(defn bytes->bits [bytes]
+  (mapcat byte->bits bytes))
+
+(defn bits->bytes [bits]
+  (map bits->byte (partition 8 8 [0 0 0 0 0 0 0 0] bits)))
+</code></pre>
+
+<h2>Huffman coding</h2>
+
+<p>
+  <i>See <a href="http://en.wikipedia.org/wiki/Huffman_coding">Wikipedia article</a> for background.</i>
+</p>
+
+<p>
+  Huffman coding is the first compression technique one would usually
+  encounter for compressing textual or other symbolic datasets.  The fundamental ideas is to encode
+  symbols (often single characters) by a bit string corresponding in length to the frequency
+  of the symbol.  So more frequent symbols will have shorter bit strings, very infrequent symbols will have
+  correspondingly longer bit strings.  
+</p>
+
+<p>
+  To implement Huffman coding first we need to generate a mapping of symbol to bit strings
+  from the input frequencies or probabilities.
+</p>
+
+<pre><code>(defn- huffman-tree->codes [path tree]
+  (if (sequential? tree)
+    (merge
+     (huffman-tree->codes (conj path 0) (first tree))
+     (huffman-tree->codes (conj path 1) (second tree)))
+    {tree path}))
+
+(defn- huffman-coding [freqs]
+  (->> (apply sorted-set-by 
+              (fn [[a ca] [b cb]] 
+                (cond
+                 (< ca cb) -1
+                 (< cb ca) 1
+                 :else (compare (str a) (str b))))
+              [::eof 1]
+              (map vec freqs))
+       ;; meat of the algorithm
+       ;; one step at the time combine the lowest frequency nodes into a new joint node with weight equal
+       ;; to the sum of frequencies
+       ;; continue until only a single node is left
+       (iterate
+        (fn [s]
+          (if (> (count s) 1)
+            (let [[a ca] (first s) 
+                  [b cb] (second s)]
+              (-> s
+                  (disj [a ca])
+                  (disj [b cb])
+                  (conj [[a b] (+ ca cb)])))
+            s)))
+       (drop-while #(> (count %) 1))
+       (first)
+       (first)
+       (first)
+       (huffman-tree->codes [])))
+</code></pre>
+
+<p>
+  Given a symbol to bit string table as calculated by the huffman coding method we can now define the
+  encoding and decoding routines as lookups against the table.
+</p>
+
+<pre><code>(defn huffman-encode [coding text]
+  (concat (mapcat coding text)
+          (coding ::eof)))
+
+(defn huffman-decode 
+  ([coding bits]
+     (huffman-decode (into {} (map (fn [[k v]] [v k]) coding))
+                     []
+                     bits))
+  ([coding prefix bits]
+     (if (contains? coding prefix)
+       (if (= ::eof (coding prefix))
+         []
+         (cons (coding prefix)
+               (lazy-seq (huffman-decode coding [] bits))))
+       (huffman-decode coding (conj prefix (first bits)) (rest bits)))))
+
+(defn huffman-coder [freqs]
+  (let [coding (huffman-coding freqs)]
+    (reify Coder
+      (encode [_ data] 
+        (bits->bytes (concat (mapcat coding data) (coding ::eof))))
+      (decode [_ data] 
+        (huffman-decode coding (bytes->bits data))))))
+</code></pre>
+
+
+<h2>Arithmetic coding</h2>
+
+<p>
+  <i>See <a href="http://en.wikipedia.org/wiki/Arithmetic_coding">Wikipedia article</a> for background.</i>
+</p>
+
+<p>
+  In short arithmetic coding is based on the same idea as Huffman
+  coding, that is to use for each symbol a bit sequence commensurate
+  in length with the probability of the symbol's occurrence in the
+  text.  However, where Huffman encoding defines the exact bit
+  sequence as the start and by that suffers from inefficiencies where
+  probabilities don't translate to effective bit sequences, arithmetic
+  encoding only converts at the end of the process and avoids
+  compounded inefficiencies between probabilities and possible binary
+  representations at the level of individual symbols.  The definition
+  of Arithmetic coding also lends itself well to extensions for
+  conditional probabilities, such as for example encoding a symbol
+  based on its conditional probability given previous symbols.
+</p>
+
+<h3>Naive implementation using Clojure ratios</h3>
+
+<p>
+  Using the powerful numerical tower provided in Clojure, in
+  particular ratios, we can define an succint, but inefficient
+  implementation as below.  The interval methods will be provided
+  further on.
+</p>
+
+<p>
+  Firstly, encoding with respect to an input table of intervals resolves to no more than 
+  calculating the next subinterval and handling the assumed end of file marker.
+</p>
+
+<pre><code>(defn arithmetic-encode
+  ([intervals data]
+     (arithmetic-encode intervals (make-interval 0 1 true true) data))
+  ([intervals interval data]
+     (let [sym (or (first data) ::eof)
+           sym-interval (intervals sym)
+           next-interval (sub-interval interval sym-interval)]
+       (if (= sym ::eof)
+         (point-in-interval next-interval)
+         (recur intervals next-interval (rest data))))))
+</code></pre>
+
+<p>
+  Decoding an interval is a bit more tricky in that to find the next interval we want to find 
+  (think binary search) the next interval containing the encoded ratio and terminate when 
+  encountering the interval representing end of file.
+</p>
+
+<pre><code>(defn arithmetic-decode
+  ([intervals number]
+     (arithmetic-decode
+      (vec (sort-by (comp :lower second) intervals))
+      (make-interval 0 1 true true)
+      number))
+  ([intervals interval number]
+     (let [[sym next-interval]
+           (quick-search
+            (fn [_ [_ iv]]
+              (let [subiv (sub-interval interval iv)]
+                (cond
+                 (in-interval? number subiv) 0
+                 (left-of-interval? number subiv) -1
+                 :else 1)))
+            number
+            intervals)]
+       (when-not (= sym ::eof)
+         (cons 
+          sym 
+          (lazy-seq 
+           (arithmetic-decode
+            intervals
+            (sub-interval interval next-interval)
+            number)))))))
+</code></pre>
+
+
+<h4>Interval implementation</h4>
+
+<p>
+  The previous section has made heavy use of a number of interval related functions, these are shown
+  below.  The implementation is left relatively simple, because representation of precise intervals
+  is not the most efficient eventual implementation in any case.
+</p>
+
+<pre><code>(defstruct interval :lower :upper :inclusive-lower? :inclusive-upper?)
+
+(defn make-interval 
+  [lower upper inclusive-lower? inclusive-upper?]
+  (struct interval lower upper inclusive-lower? inclusive-upper?))
+
+(defn str->interval
+  [spec]
+  (let [[lower upper] (map read-string (s/split (subs spec 1 (dec (count spec))) #"\s*,\s*"))]
+    (make-interval lower upper (= \[ (first spec)) (= \] (last spec)))))
+
+(defn interval->str
+  [interval]
+  (str (if (:inclusive-lower? interval) "[" "(")
+       (:lower interval) "," (:upper interval)
+       (if (:inclusive-upper? interval) "]" ")")))
+
+(defn interval-length
+  [interval]
+  (- (:upper interval) (:lower interval)))
+
+(defn in-interval?
+  [num interval]
+  (or (< (:lower interval) num (:upper interval))
+      (and (= num (:lower interval)) (:inclusive-lower? interval))
+      (and (= num (:upper interval)) (:inclusive-upper? interval))))
+
+(defn left-of-interval?
+  [num interval]
+  (or (< num (:lower interval))
+      (and (= num (:lower interval))
+           (not (:inclusive-lower? interval)))))
+
+(defn right-of-interval?
+  [num interval]
+  (or (> num (:upper interval))
+      (and (= num (:upper interval))
+           (not (:inclusive-upper? interval)))))
+
+(defn sub-interval
+  "Creates a sub interval of outer in the same relation of inner to reference / [0,1] (default)"
+  ([outer inner] (sub-interval outer inner (make-interval 0 1 true true)))
+  ([outer inner reference]
+     (let [ref-len (interval-length reference)
+           lower-fraction (/ (- (:lower inner) (:lower reference)) ref-len)
+           upper-fraction (/ (- (:upper inner) (:lower reference)) ref-len)]
+       (make-interval
+        (+ (* (- 1 lower-fraction) (:lower outer))
+           (* lower-fraction (:upper outer)))
+        (+ (* (- 1 upper-fraction) (:lower outer))
+           (* upper-fraction (:upper outer)))
+        (and (:inclusive-lower? outer) (:inclusive-lower? inner))
+        (and (:inclusive-upper? outer) (:inclusive-upper? inner))))))
+</code></pre>
+
+      <div id="disqus_thread"></div>
+      <script type="text/javascript">
+        /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+        var disqus_shortname = 'tuor713githubio'; // required: replace example with your forum shortname
+
+        /* * * DON'T EDIT BELOW THIS LINE * * */
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+    <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+    
+
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
+</html>
+
+
