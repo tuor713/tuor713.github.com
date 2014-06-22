@@ -4,7 +4,7 @@ title: Forays into clojure.core.logic
 
 <h1>Forays into clojure.core.logic</h1>
 
-<p class="datetag">9 February 2014 - status: draft</p>
+<p class="datetag">22 June 2014 - status: draft</p>
 
 <p>
 This section contains explorative usages of clojure.core.logic. Nothing described herein should be taken as fait accompli but rather as ongoing search for the right place of clojure.core.logic in the toolset.
@@ -49,4 +49,153 @@ Enter clojure.core.logic: the promise, other than the general promise of logic p
   </li>
 </ul>
 
+</p>
+
+<p>
+  Although the relational model is powerful there are a number of drawbacks to be considered
+  <ul>
+    <li>The decision points for encapsulation, information hiding and generally beating the Law of Demeter are less clear. By default relational facts are global and flat (i.e. not grouped and clustered into coherent units).</li>
+    <li>A follow on from the previous, but worth mentioning on its own: logical statefulness as required by the model is introduced into the global namespace leading to might be deemed global state (yuk).
+  </ul>
+</p>
+
+<h2>Managing state</h2>
+
+<p>In most worthwhile programs there is a smattering of state to be maintained and updated.  Keeping in the tradition with Clojure statefulness
+  in core.logic is pushed as much to the outside as possible.  In fact there are no state manipulating primitives in the core functions at all.
+  Instead all state is an artifact of modifying the immutable Clojure datastructures making up the core.logic.pldb databases.  How does one use
+  this to implement the bits of state required?
+</p>
+
+<p>
+  For the context of the 7 Wonders implementation I have gone down the route to keep all state in the core.logic database, itself kept in
+  one of Clojure's stateful primitives (say an atom for simplicity).  State manipulation then is to transform one snapshot of the database
+  into the next, which can be achieved in logic without resorting to many non-relational primitives. To start with we define the concept
+  of an action goal to have the form below where the initial input-state is intended to the be the same state that we are running logic on. 
+  Later on it may progressively diverge as we add more effects of a single action. We must take care then to re-snapshot it after
+  any change that might influence further logic derivations.
+</p>
+
+<pre><code>(predicate input-state ... parameters ... output-state)</code></pre>
+
+<p>
+  At the most simple let's define two simple state mutators to add and retract atomic facts.  For the moment these are non-relational
+  and in addition depend on extending the core IWalkTerm interface to correctly deal with sets.
+</p>
+
+<pre><code>(defn facto [instate fact outstate]
+  (project [instate fact]
+           (== outstate (apply db-fact instate fact))))
+
+(defn retracto [instate fact outstate]
+  (project [instate fact]
+           (== outstate (apply db-retraction instate fact))))</code></pre>
+
+<p>
+  Now in anticipation of dealing with strings of these primitive state mutators, we also will need a way to write action chains
+  without introducing dozens of one of lvars for intermediate results. Hence the following macro, which in spirit similar to Clojure's
+  threading macros creates the appropriate lvars for a chain of actions and weaves them through the supplied predicates (assuming the standard
+  action for of input-state first and output-state last in the parameter list):
+</p>
+
+<pre><code>(defmacro chain-actions [& args]
+  (let [actions (rest (butlast args))
+        instate (first args)
+        outstate (last args)
+        tempstates (repeatedly (dec (count actions)) #(gensym "state"))
+        all-states (concat [instate] tempstates [outstate])
+        
+        enriched-actions
+        (map
+         (fn [a [sin sout]]
+           (list* (first a)
+                  (concat [sin] (rest a) [sout])))
+         actions
+         (partition 2 1 all-states))]
+    `(fresh [~@tempstates]
+            ~@enriched-actions)))</code></pre>
+
+<p>
+  With these tools under our belts let's now define what are possible the simplest game actions: transfering resources from a player to
+  another player or the bank as well as the discard action netting three gold.
+</p>
+
+<pre><code>(defn transfero
+  [instate payer receiver transfer outstate]
+  (fresh [payer-state] 
+         (conde [(== payer :Bank) (== payer-state instate)]
+                [(fresh [res new-res] 
+                        (resources payer res)
+                        (rembero-all transfer res new-res)
+                        (chain-actions instate
+                                       (retracto [resources payer res])
+                                       (facto [resources payer new-res])
+                                       payer-state))])
+         (conde [(== receiver :Bank) (== outstate payer-state)]
+                [(fresh [res new-res]
+                        (resources receiver res)
+                        (appendo res transfer new-res)
+                        (chain-actions payer-state
+                                       (retracto [resources receiver res])
+                                       (facto [resources receiver new-res])
+                                       outstate))])))
+
+(defn discardo [instate player card outstate]
+  (chain-actions instate
+                 (transfero :Bank player [:Gold :Gold :Gold])
+                 (retracto [hand player card])
+                 (facto [discarded card])
+                 outstate))</code></pre>
+
+
+<h2>Challenges around logic programming</h2>
+
+<p>
+  In addition to positives there are also some unique struggles with regard to logic programming, especially the pursuit of the pure 
+  form eschewing conda, condu, project and other non-relational constructs.
+</p>
+
+<h3>Limited negation</h3>
+
+<p>
+  Even though relational predicates are the most versatile ones a lot of logic has, in my own usage at least, been one way.  The lack of 
+  negation support leads to problems that are fairly unique and coming from mainstream Clojure or Java simply incomprehensible.  To take an 
+  example, 7 Wonders contains the rule that a player can only build any building once.  A simple translation of this would be the rule
+  that a building is <i>not</i> buildable if it has already been built.  To translate this into the logic form I eventually stuck with
+  a condu interpretation that makes the whole buildable construct non-relational.
+</p>
+
+<pre><code>(condu 
+  [(building player card) fail]
+  ["... success case do other checks ..."])</code></pre>
+
+<h3>Polymorphism and pluggability</h3>
+
+<p>
+  One of the main forms of flexibility and extensibility of many modern languages is the support for plug points - be it interfaces with 
+  polymorphic behaviour, be it runtime reflection etc. The pluggability serves narrow goals of segregating the logic of the system via
+  clearly defined API points to actually allowing deploy and runtime extension via third-party contributions.  On the logic programming
+  side this seems to be absent as a first order mechanism, particularly the polymorphism taken for granted in essentially all modern 
+  programming languages.
+</p>
+
+<p>
+  Certainly, using the project tool it is not difficult to introduce non-relational pluggability into the system, but it somehow feels
+  like abandoning the promised high road of logic programming.
+</p>
+
+<h3>Encapsulation and information hiding</h3>
+
+<p>Similar to the note of polymorphism I am also struggling with satisfying my expectations about encapsulation and information hiding
+  in the logic programming world.  Starting with C's abstract data type concept, significant parts of modern software engineering in the
+  imperative and object-oriented camp are dedicated to carefully encapsulating data (especially mutable data).  The goal is to expose data
+  alongside the applicable operations that maintain invariants of the data as well as to limit visibility of data to a select class of users
+  to reduce the overall connectedness of software systems.
+</p>
+
+<p>
+  On the logic programming side on the other hand - at least in most examples I came across - information hiding is not considered at all. 
+  Facts are generally globally available and though they are (thank God) not stateful, it still represents a gross violation of the 
+  Law of Demeter. Certainly, in the core.logic implementation it is entirely possible to scope facts and predicates by Clojure namespaces, 
+  but this is not a feature often discussed and given the implementation of data as global Clojure maps not strongly enforced.
 </p>
