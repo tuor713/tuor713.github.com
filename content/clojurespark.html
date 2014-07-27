@@ -46,15 +46,18 @@ title: First steps with Spark and Clojure
 <h2>Writing the Clojure task</h2>
 
 <p>
-  First, set up the leiningen project. There should be an optimization of pushing the spark libraries into :dev-dependencies 
-  rather than dependencies to keep the uberjar slim.  However, that causes problems with compilation of the driver class 
-  we are going to need (spark.clojure.pi).
+  First, set up the leiningen project.  The only tricky thing is to get the dev dependencies right, so that the uberjar
+  is not bloated up with all the Spark dependencies.
 </p>
 
 <pre><code>(defproject spark "0.1.0-SNAPSHOT"
   :aot [spark.clojure.pi]
-  :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.apache.spark/spark-core_2.10 "1.0.1"]])</code>
+  
+  ;; avoid including spark in compilation but don't include in jar, credit to clj-spark project.clj
+  :profiles {
+      :dev {:dependencies [[org.apache.spark/spark-core_2.10 "1.0.1"]]}}
+
+  :dependencies [[org.clojure/clojure "1.6.0"]])</code>
 </pre>
 
 <p>
