@@ -1,0 +1,180 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - First steps with Spark and Clojure</title>
+
+    <link href="/deps/highlight.js/styles/tomorrow.css" rel="stylesheet" type="text/css" />
+    <script src="/deps/highlight.js/highlight.pack.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <link rel="stylesheet" href="/style.css">
+
+    <!-- Google analytics: tuor713 -->
+    <script type="text/javascript">
+      
+      var _gaq = _gaq || [];
+      _gaq.push(['_setAccount', 'UA-39742460-1']);
+      _gaq.push(['_trackPageview']);
+
+      (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+      })();
+
+    </script>
+    
+    
+
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>First steps with Spark and Clojure</h1>
+
+<p class="datetag">27 July 2014</p>
+
+<p>
+  <a href="http://spark.apache.org">Spark</a> being all the rage these days, I decided to set myself up and 
+  try out one of the canonical samples (distributed Pi computation) in Clojure.  
+  Note that discussion below focuses on the raw Spark APIs.  There is already a nice looking wrapper library, 
+  <a href="http://github.com/TheClimateCorporation/clj-spark">clj-spark</a>.
+</p>
+
+
+<h2>Basic setup</h2>
+
+<p>
+  Let's start with getting the built-in Scala version of Pi calculation running.  For convenience (and avoiding yet more dependencies)
+  this will be a local deployment master+node setup.  Unfortunately, there seems to be a one cliff around the local ip address 
+  - at least on my local mac. So let's throw in a couple of additional settings (SPARK_LOCAL_IP and for good measure change the mac
+  "unknown-blah" host name). Note the spark context of the master node is printed in the master logs, in case where the hostname works out
+  to something random.
+</p>
+
+<pre>
+  &gt; sudo scutil --set HostName "mylocalbox"
+  &gt; export SPARK_LOCAL_IP=127.0.0.1
+  &gt; cd &lt;spark install directory&gt;
+  &gt; sbin/start-master
+  &gt; bin/spark-class org.apache.spark.deploy.worker.Worker spark://mylocalbox:7077
+</pre>
+
+<p>
+  After this the Spark master should be up (web port 8080) along side one worker node (on 8081). So time to run the test 
+</p>
+
+<pre>
+  &gt; bin/spark-submit --master spark://mylocalbox:7077 --class org.apache.spark.examples.SparkPi lib/spark-examples-1.0.1-hadoop2.2.0.jar
+  ... 
+  14/07/27 19:37:10 INFO SparkContext: Job finished: reduce at SparkPi.scala:35, took 3.908062 s
+  Pi is roughly 3.13882
+</pre>
+
+<h2>Writing the Clojure task</h2>
+
+<p>
+  First, set up the leiningen project. There should be an optimization of pushing the spark libraries into :dev-dependencies 
+  rather than dependencies to keep the uberjar slim.  However, that causes problems with compilation of the driver class 
+  we are going to need (spark.clojure.pi).
+</p>
+
+<pre><code>(defproject spark "0.1.0-SNAPSHOT"
+  :aot [spark.clojure.pi]
+  :dependencies [[org.clojure/clojure "1.6.0"]
+                 [org.apache.spark/spark-core_2.10 "1.0.1"]])</code>
+</pre>
+
+<p>
+  With the project in place, the driver class comes next.  Translating the Java/Scala algorithm to Clojure is pretty straight forward.
+  The algorithm calculates an approximation of Pi via a Monte Carlo process checking whether randomly chosen points in the unit square
+  fall into the unit cicle (the percentage of points that do give the area of the unit cirle or 4 times Pi). We are using Spark here
+  to map in parallel over all a collection of samples points and reduce the results.  
+</p>
+
+<pre>
+  <code>(ns spark.clojure.pi
+  (:gen-class)
+  (:import [org.apache.spark SparkConf]
+           [org.apache.spark.api.java JavaSparkContext]
+           [org.apache.spark.api.java.function Function Function2]))
+
+(defn -main [& args]
+  (let [conf (SparkConf.)
+        _ (.setAppName conf "ClojureSparkPi")
+
+        no-slices (if (seq args) (Integer/parseInt (first args)) 1)
+        n (* no-slices 100000)
+
+        count 
+        (-> (JavaSparkContext. conf)
+            (.parallelize (vec (range n)) no-slices)
+            (.map (proxy [Function] []
+                    (call [i]
+                      (let [x (- (* (rand) 2) 1)
+                            y (- (* (rand) 2) 1)]
+                        (if (< (+ (* x x) (* y y)) 1)
+                          1
+                          0)))))
+            (.reduce (proxy [Function2] []
+                       (call [i j] (+ i j)))))]
+    (println "pi is roughly" (/ (* 4.0 count) n))))</code>
+</pre>
+
+<p>
+  Overall this does not look too horrible.  The function declarations are a bit awkward but could be conventiently wrapped via macros.
+  To execute the code, first create an uberjar via leiningen and then run it against the Spark deployment similar to the Scala SparkPi example above.
+</p>
+
+<pre>
+  &gt; bin/spark-submit --master spark://mylocalbox:7077 --class spark.clojure.pi &lt;path to Clojure project&gt;/spark-0.1.0-SNAPSHOT-standalone.jar
+  ...
+  14/07/27 19:50:57 INFO spark.SparkContext: Job finished: reduce at pi.clj:25, took 6.575753 s
+  pi is roughly 3.14252
+</pre>
+
+      <div id="disqus_thread"></div>
+      <script type="text/javascript">
+        /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+        var disqus_shortname = 'tuor713githubio'; // required: replace example with your forum shortname
+
+        /* * * DON'T EDIT BELOW THIS LINE * * */
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+    <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+    
+
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
+</html>
+
+
