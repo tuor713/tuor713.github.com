@@ -1,0 +1,574 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>tuor713's home - Vindinium clojure bot</title>
+
+    <link href="/deps/highlight.js/styles/tomorrow.css" rel="stylesheet" type="text/css" />
+    <script src="/deps/highlight.js/highlight.pack.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <link rel="stylesheet" href="/style.css">
+
+    <!-- Google analytics: tuor713 -->
+    <script type="text/javascript">
+      
+      var _gaq = _gaq || [];
+      _gaq.push(['_setAccount', 'UA-39742460-1']);
+      _gaq.push(['_trackPageview']);
+
+      (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+      })();
+
+    </script>
+    
+    
+
+    <!-- you don't need to keep this, but it's cool for stats! -->
+    <meta name="generator" content="nanoc 3.6.2"> 
+  </head>
+  <body>
+    <div id="main">
+      <h1>A Clojure bot for Vindinium</h1>
+
+<p class="datetag">17 August 2014</p>
+
+<p>
+  Having found <a href="http://vindinium.org">Vindinium</a> on Hacker News, I decided to have a go
+  at writing a Clojure bot. There is a nicely made starter project available 
+  <a href="https://github.com/ornicar/vindinium-starter-clojure">here</a>. The
+  starter kit provides a fully functioning client that just executes
+  random moves.
+</p>
+
+
+<h2>Modelling the world</h2>
+
+<p>
+  To start with (for narrative convenience rather than historical accuracy) let's take a look at the 
+  model.  Although we can just work on the Clojure converted JSON data
+  structures, it helps to define a couple of accessors to avoid
+  spelling errors that the compiler won't catch.
+</p>
+
+<pre><code>(ns vindinium.model)
+
+(defn hero
+  [game hero-id]
+  (get-in game [:heroes hero-id]))
+(defn heroes [game] (vals (:heroes game)))
+
+(defmacro def-hero-accessor [key & [def-name]]
+  (let [n (or def-name (symbol (name key)))]
+    `(defn ~n
+       ([hero#] (~key hero#))
+       ([game# hero-id#] (~n (hero game# hero-id#))))))
+
+(def-hero-accessor :id)
+(def-hero-accessor :pos)
+(def-hero-accessor :gold)
+(def-hero-accessor :life)
+(def-hero-accessor :spawnPos spawn-pos)
+(def-hero-accessor :mineCount mine-count)
+
+(defn tile 
+  ([board x y] (get-in board [x y]))
+  ([board [x y]] (get-in board [x y])))
+
+(defn board [game] (:board game))
+(defn turn [game] (:turn game))
+
+(defn mine? [tile] (and (vector? tile) (= :mine (first tile))))
+(defn hero? [tile] (and (vector? tile) (= :hero (first tile))))
+
+(defn my-id [state] (get-in state [:hero :id]))
+(defn game [state] (:game state))</code></pre>
+
+<p>
+  Note that from the default model handling, the board is change to
+  remove the somewhat unnecessary :tiles layer. Also positions are
+  handled as <code>[x y]</code> vectors rather than <code>{:x x, :y
+  y}</code> maps (just a style preference, no deeper performance
+  investigation). 
+</p>
+
+
+<h2>The agent</h2>
+
+<p>
+  Next let's look at the framework for an agent.  As the first thing
+  let's define a layer of safety around any behavioural function we
+  are going to write to enforce on the one hand the strict time out
+  constraint as well as provide a safe fallback should logic errors
+  creep into the AI.  The function below does just that (as well as
+  generating some stats around performance).  Note though
+  that even leaving 50% of the time window (1 sec) buffer network
+  delays can cause timeouts and rather annoying defeats.
+</p>
+
+<pre><code>(defn rand-move [] (rand-nth ["north" "south" "east" "west" "stay"])) 
+
+(defn bot 
+  "Creates a safe bot function that times the behaviour function"
+  [behaviour]
+  (fn [input]
+    (try (let [start (System/currentTimeMillis) 
+               fut (future (behaviour input))
+               res (deref fut 1000 :timeout)
+               end (System/currentTimeMillis)]
+           (println (str "Agent took " (- end start) "ms"))
+           (if (= res :timeout)
+             (do 
+               (println "Bot timeout")
+               (future-cancel fut)
+               (rand-move))
+             (name res)))
+         (catch Exception e
+           (println "Bot exception" e)
+           (.printStackTrace e)
+           (rand-move)))))</code></pre>
+
+<p>
+  Next, let's define how we want the agent to be set up.  Rather than having
+  a single monolithic behavour function, I wanted to try an approach
+  where the behaviour is composed from different (ideally atomic)
+  behaviour traits, in the spirit of a reactive agent.  For that we
+  need one more layer of plumbing to compose different heuristics.
+  Below is the shell for our heuristic agent.
+</p>
+
+
+<pre><code>(defn heuristic-agent [& heuristics]
+  (fn [input]
+    (let [candidates
+          (apply concat
+                 (pmap 
+                  (fn [f]
+                    (try
+                      (let [start (System/currentTimeMillis)
+                            weight (get (meta f) :weight 1)
+                            label (get (meta f) :label (str f))
+                            choices (f input)
+                            res 
+                            (if (or (string? choices) (keyword? choices))
+                              [[choices weight]]
+                              (vec (map (fn [[move w]] [move (* w weight)]) choices)))
+                            time (- (System/currentTimeMillis) start)]
+                        (println (str "heuristic " label " (" time "ms) => " res))
+                        res)
+                      (catch Exception e
+                        (println (str "Error in heuristic " (get (meta f) :label (str f)) ", ignoring it"))
+                        (.printStackTrace e)
+                        nil)))
+                  heuristics))
+          sum-weights
+          (->> candidates
+               (group-by first)
+               (map (fn [[move ws]] [move (reduce + (map second ws))]))
+               (shuffle))
+          choice (first (apply max-key second sum-weights))]
+      (println "heuristic sum =>" sum-weights "=>" choice)
+      choice)))</code></pre>
+
+<p>
+  This is somewhat dense code.  The gist is the following: the function
+  takes a set of behaviours (function from state to a single move or
+  set of weighted options), with weight and label supplied as optional
+  meta data.  On each turn we run through all
+  behaviours (pmap for performance) and aggregate all the weighted
+  choices.  In the end we take the highest rate move (or a random one
+  if there are multiple choices, a small defence against loops). 
+</p>
+
+<p>A sample usage in terms of behaviour traits to be described below
+  would look as follows.
+</p>
+
+<pre><code>(bot (heuristic-agent
+        (with-meta (autist-dfs-agent 7) {:label "autist-dfs" :weight 1})
+        (with-meta (tavern-finder 30) {:label "tavern-finder" :weight 0.9})
+        (with-meta (mine-finder 30) {:label "mine-finder" :weight 1})
+        (with-meta combat-one-oh-one {:label "combat" :weight 300})
+        (with-meta (avoid-spawning-spots 0.1) {:label "spawn-avoider" :weight 0.1})))</code></pre>
+
+
+<h3>Simulating actions</h3>
+
+<p>
+  The next ingredient we need for most of the behaviours is a way to
+  simulate the outcome of a movement, not just in terms of position
+  changes but also in terms of combat effects etc.
+</p>
+
+<p>
+  The code is quite a bit (and could with some more refactoring).
+  Let's start with the main movement. In essence we look at the new
+  position and then determine whether the movement is illegal (off the
+  board or into a wall), trivially ok (i.e. empty space) or has
+  special effects like moving into a mine or a tavern.  After
+  resolving the effects we then deal with post move effects like
+  combat, gold accrual and thirst.
+</p>
+
+<pre><code>(defn move [game hero direction]
+  (let [[x y] (m/pos game hero)
+        [nx ny :as npos] (pos+ [x y] direction)
+        terrain (m/tile (m/board game) npos)]
+    (when-not (or (nil? terrain) (= :wall terrain))
+      (-> (cond
+           (= :empty terrain)
+           (-> game
+               (assoc-in [:heroes hero :pos] npos)
+               (assoc-in [:board x y] :empty)
+               (assoc-in [:board nx ny] [:hero hero]))
+
+           (= :tavern terrain)
+           (-> game
+               (update-in [:heroes hero] #(if (> (:gold %) 1) 
+                                            (assoc % :gold (- (:gold %) 2)
+                                                   :life (min 100 (+ (:life %) 50)))
+                                            %)))
+
+           (= :hero (first terrain))
+           game 
+
+           (and (= :mine (first terrain)) (= hero (second terrain)))
+           game
+
+           (and (= :mine (first terrain)) (> (:life (m/hero game hero)) 20))
+           (-> game
+               (assoc-in [:board nx ny] [:mine hero])
+               (update-in [:heroes hero :life] #(- % 20))
+               (update-in [:heroes hero :mineCount] inc))
+
+           (and (= :mine (first terrain)) (<= (:life (m/hero game hero)) 20))
+           (die game hero nil))
+
+          (fight hero)
+
+          ;; mines
+          (update-in [:heroes hero] #(assoc % :gold (+ (:gold %) (:mineCount %))))
+
+          ;; thirst
+          (update-in [:heroes hero :life] #(max 1 (dec %)))))))</code></pre>
+
+<p>
+  Note that as a design choice we have treated moving into a wall and
+  off the map as illegal actions.  This quite useful for cutting out
+  invalid and most likely undesired behaviour from our search trees.
+  However, it is not exactly what the server would do (i.e. in a real
+  game an illegal move means we stay in the same place and all other
+  effects occur as normal).
+</p>
+
+<p>
+  There a couple of helper methods not shown in order to get to the meat
+  of the behaviour.  The code can be found on github as referenced at
+  the bottom.
+</p>
+
+<h3>The behaviours</h3>
+
+<p>
+  So with all the plumbing in place what behaviours shall we use.  The
+  current agent uses the following five traits (in historical order of implementation):
+</p>
+
+<ul>
+  <li><b>Autistic depth-first search</b>: a rather crude DFS approach
+  to find the most gainful short term move. Leaves out all opponents
+  movements. This is probably the least useful trait and omitted below.</li>
+  <li><b>Tavern finder</b>: a breadth-first seach to find the nearest
+  tavern, only kicks in after life drops under a given threshold</li>
+  <li><b>Mine finder</b>: Similar to the tavern finder gives a weight
+  to the move that leads to the closest conquerable mine. Behaviour
+  is off when life is too low to actually conquer a mine.</li>
+  <li><b>Combat 101</b>: Simple but effective behaviour not to get pawned
+  in close combat.</li>
+  <li><b>Spawn avoidance</b>: Minor rule to penalize being on or
+  around spawn points as that often leads to unpredicted deaths as
+  well as ungainful loops</li>
+</ul>
+
+<h3>Targeted finders: taverns and mines</h3>
+
+<p>
+  Finding a tavern or mine is a simple application of breadth-first
+  search.  One could use A* instead if the target is pre-determined,
+  but in our case we search for any closest.
+</p>
+
+<pre><code>(defn bfs 
+  ([state neighbours success?]
+    ... returns full path to success state or nil ...))
+
+(defn path-to-tavern [board starting]
+  (bfs starting
+       (fn [pos]
+         (neighbours board pos
+                     #(or (contains? #{nil :wall :hero} %)
+                           (m/mine? %))))
+       (fn [pos] (= :tavern (m/tile board pos)))))</code></pre>
+    
+<p>
+  Having put this into place, we just need to wrap it with the life
+  threshold and wiring to return the starting move from the calculated
+  path.  A little further niggle is that we want to actively use
+  taverns when we are next to them, so as to avoid pointlessly having
+  to ferry between mines and taverns with partial life.  This could as
+  well be a separate trait but is included here.
+</p>
+
+<pre><code>(defn tavern-finder [life-threshold]
+  (fn [state]
+    (let [id (m/my-id state)
+          game (m/game state)
+          adjacent-tavern 
+          (->> real-moves
+               (filter #(= :tavern
+                           (m/tile (m/board game) 
+                                   (pos+ (m/pos game id) %))))
+               (first))]
+      ;; if we are adjacent give a little push so we actually use it
+      (if (and adjacent-tavern (<= (m/life game id) 50))
+        [[adjacent-tavern 20]]
+        (when (<= (m/life game id) life-threshold)
+          (move->direction (m/pos game id) 
+                           (second (path-to-tavern (m/board game) (m/pos game id)))))))))</code></pre>
+
+<p>
+  The code for finding mines is unsurprisingly quite similar.
+</p>
+
+<pre><code>(defn path-to-mine [board hero-id starting]
+  (bfs starting
+       (fn [pos]
+         (->> real-moves
+              (map #(pos+ pos %))
+              (remove #(contains? #{nil :wall :hero :tavern [:mine hero-id]} (m/tile board %)))))
+       (fn [pos] (m/mine? (m/tile board pos)))))
+
+(defn mine-finder [life-threshold]
+  (fn [state]
+    (let [id (m/my-id state)
+          game (:game state)]
+      (when-not (< (m/life game id) life-threshold)
+        (move->direction (m/pos game id) 
+                         (second (path-to-mine (m/board game) id (m/pos game id))))))))</code></pre>
+
+<p>
+  These two behaviours (with appropriate weights and threshold) alone
+  make a pretty effective farmer that will find mines and replenish
+  life.  However, without some smarts for combat the agent is still
+  doomed to be beaten most of the time as the consequences of death
+  are severe.
+</p>
+
+<h3>Combat 101</h3>
+
+<p>
+  There are several ways to approach combat.  One would be to use an
+  alpha-beta search tree to calculate possible scenarios.  Although in
+  the long run this is likely one of the best methods, with
+  insufficient processing time and a non-optimized simulation, chances
+  are that the calculation horizon might not be large enough to be
+  effective.  Hence, for initial combat handling we go with a simpler
+  but effective rule based approach.
+</p>
+
+<p>
+  Notice first that we can usually avoid combat by never getting
+  within one square range of an opponent (assuming of course our bot
+  does not foolishly end up in a cul-de-sac).  Moreover, in hand to
+  hand combat we can calculate the melee outcome just from the
+  starting totals.  From these observations we posit the following
+  rules:
+</p>
+
+<ul>
+  <li>Never move the bot into a square at distance one from an enemy
+  as this would give him the first attack.  This rule could be
+  relaxed based on more fine-grained combat calculations, but the
+  general rule is safer.</li>
+  <li>When an opponent moves into one square distance, only move
+  adjacent if we have a higher life multiple of 20s than the opponent
+  (after taking our first hit into account).</li>
+</ul>
+
+<p>
+  These two rules already would be pretty effective for avoiding death
+  and picking off the occassional foolish opponent getting too close.
+  However, one important special case is missing: the handling of
+  taverns.
+</p>
+
+<p>
+  Taverns prove to be very powerful.  An enemy next to a tavern cannot
+  be beaten unless he falls in the first attack.  Hence, approaching
+  such an enemy should not be attempted.  In the reverse once our bot
+  has reached a tavern with more than 20 life we are safe.
+</p>
+
+<p>
+  The code below implements these rules by calculating a map of square
+  modifiers (-1 for a square that is likely to get us killed, +0.5 for
+  a square that let us kill an enemy) per opponent and then
+  aggregating them into a modifier map.  Note that the choice of -1
+  and +0.5 should ensure that we take a safety first approach to
+  conflicting threat and opportunities.  Finally, the code also has a
+  bit more fine tuning on when to engage a weaker foe (when he has
+  mines to gain or we can off him in one step to get rid off the
+  nuisance). 
+</p>
+
+<pre><code>(defn enemy-mod-map [game my-life enemy]
+  (let [enemy-pos (m/pos enemy)
+        ns (neighbours (m/board game) enemy-pos)
+        ns2 (distinct (remove #{enemy-pos} (mapcat #(neighbours (m/board game) %) ns)))]
+    (->> (concat
+          ;; don't get into the +1 space on your own
+          (map #(-> [% -1]) ns2)
+          (cond
+           (and (next-to-tavern? (m/board game) enemy-pos) 
+                (> (m/life enemy) 20))
+           (map #(-> [% -1]) ns)
+
+           ;; we would loose even if we hit first
+           (<= (quot my-life 20) (dec (quot (m/life enemy) 20)))
+           (map #(-> [% -1]) ns)
+
+           ;; we would win and there is something to get, but do go for the kill just to get rid 
+           ;; of annoying bots
+           (or (> (m/mine-count enemy) 0) 
+               (<= (m/life enemy) 20))
+           (map #(-> [% 0.5]) ns)
+
+           ;; nothing to get, no preference ... to validate
+           :else nil))
+         (map (fn [[pos w]]
+                (if (and (> my-life 20) (next-to-tavern? (m/board game) pos))
+                  [pos (max w 0)]
+                  [pos w])))
+         (into {}))))
+
+(defn enemies-mod-map [game hero-id]
+  (let [my-life (m/life game hero-id)]
+    (->> (m/heroes game)
+         (remove #(= hero-id (m/id %)))
+         (map #(enemy-mod-map game my-life %))
+         (apply merge-with +))))
+
+(defn combat-one-oh-one [input]
+  (let [game (m/game input) 
+        id (m/my-id input)
+        mod-map (enemies-mod-map game id)]
+    (->> move-options
+         (keep #(if-let [game' (move game id %)]
+                  [% game']))
+         (keep (fn [[move g]]
+                 (if-let [mod (mod-map (m/pos g id))]
+                   [move mod])))
+         (remove (fn [[move mod]]
+                   (and (< mod 0) (= (m/mine-count game id) 0)))))))</code></pre>
+
+<h3>Fine tuning: avoiding spawning points</h3>
+
+<p>
+  Finally, observing a couple of games it becomes obvious quite
+  quickly that being close to spawning points is a large risk, not
+  only for getting unexpectedly killed but also for getting stuck into
+  tit-for-tat loops.  Hence, everything else being equal, we want to
+  avoid getting too close to spawns.  The behaviour below tries to
+  address that by applying a penalty for moving onto or adjacent to
+  spawning points.
+</p>
+
+<pre><code>(defn avoid-spawning-spots [ratio]
+  (fn [input]
+    (let [game (m/game input)
+          my-id (m/my-id input)
+          enemies (remove #(= my-id (:id %)) (m/heroes game))
+          spawns (map m/spawn-pos enemies)]
+      (->> move-options
+           (keep #(if-let [g' (move game my-id %)]
+                   (-> [% (m/pos g' my-id)])))
+           (keep 
+            (fn [[move pos]]
+              (cond
+               (some #{pos} spawns) [move -1]
+               (some #(adjacent? (m/board game) pos %) spawns) [move (- ratio)]
+               :else nil)))))))</code></pre>
+
+
+<h2>Further work</h2>
+
+<p>
+  Many possible extension to the behaviours described above are
+  possible.  The two most fruitful areas 
+  would be improved combat, in particular avoid going into traps or
+  otherwise getting killed and properly punishing exposed opponents,
+  and detecting as well as breaking stalemates.  Apart from that one
+  could also think about optimizing the circuit of mine acquisition,
+  varying behaviour based on map size and/or opponent ratings,
+  supporting smart determination of taverns and mines that avoid
+  conflict with stronger opponents etc
+</p>
+
+
+<h2>Getting the code</h2>
+
+<p>
+  Finally the source for what is discussed above is available
+  at <a href="https://github.com/tuor713/vindinium">tuor713/vindinium</a>.
+</p> 
+
+<!-- 
+     <pre><code>(predicate input-state ... parameters ... output-state)</code></pre>
+-->
+
+      <div id="disqus_thread"></div>
+      <script type="text/javascript">
+        /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+        var disqus_shortname = 'tuor713githubio'; // required: replace example with your forum shortname
+
+        /* * * DON'T EDIT BELOW THIS LINE * * */
+        (function() {
+            var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+            dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+            (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+        })();
+    </script>
+    <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+    <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+    
+
+    </div>
+    <div id="sidebar">
+      <ul>
+	<h2>Links</h2>
+	<ul>
+	  <li><a href="/index.html">Home</a></li>
+	  <li><a href="http://mahrwald.blogspot.co.uk/">Old blog</a></li>
+	</ul>
+	
+      <!--
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="http://nanoc.ws/docs/">Documentation</a></li>
+        <li><a href="http://nanoc.ws/docs/tutorial/">Getting Started</a></li>
+      </ul>
+      <h2>Community</h2>
+      <ul>
+        <li><a href="http://groups.google.com/group/nanoc/">Discussion Group</a></li>
+        <li><a href="irc://chat.freenode.net/#nanoc">IRC Channel</a></li>
+        <li><a href="http://github.com/nanoc/nanoc/wiki/">Wiki</a></li>
+      </ul>
+      -->
+    </div>
+  </body>
+</html>
+
+
