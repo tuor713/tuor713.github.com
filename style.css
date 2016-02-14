@@ -104,3 +104,8 @@ a:hover {
 .datetag {
     font-style: italic;
 }
+
+.rich-input {
+  color: #00C;
+  border-bottom: 1px dotted #00C;
+}
